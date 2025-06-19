@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <title>Реакционна Игра</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: linear-gradient(to bottom right, #002b36, #073642);
+      color: #ffffff;
+      text-align: center;
+      padding: 50px;
+      transition: background 1s ease-in-out;
+    }
+
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 40px;
+      text-shadow: 0 0 10px #00ffff;
+    }
+
+    button {
+      padding: 15px 30px;
+      font-size: 1.3rem;
+      font-weight: bold;
+      border: none;
+      border-radius: 10px;
+      margin: 15px;
+      background: #268bd2;
+      color: white;
+      cursor: pointer;
+      transition: background 0.3s, transform 0.2s;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+
+    button:hover {
+      background: #3498db;
+      transform: scale(1.05);
+    }
+
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    #status {
+      margin-top: 40px;
+      font-size: 2rem;
+      padding: 20px;
+      border-radius: 10px;
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.1);
+      animation: fadeIn 0.5s ease-out;
+      min-width: 300px;
+    }
+
+    .led-indicator {
+      display: inline-block;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      margin: 10px;
+      border: 3px solid #333;
+      transition: all 0.3s ease;
+    }
+
+    .red-led {
+      background: #333;
+      box-shadow: inset 0 0 10px #111;
+    }
+
+    .red-led.active {
+      background: #ff0000;
+      box-shadow: 0 0 20px #ff0000, inset 0 0 10px #aa0000;
+    }
+
+    .green-led {
+      background: #333;
+      box-shadow: inset 0 0 10px #111;
+    }
+
+    .green-led.active {
+      background: #00ff00;
+      box-shadow: 0 0 20px #00ff00, inset 0 0 10px #00aa00;
+    }
+
+    .led-container {
+      margin: 30px 0;
+    }
+
+    @keyframes flash {
+      0% { background-color: #0f0; box-shadow: 0 0 30px #0f0; }
+      50% { background-color: #fff; box-shadow: 0 0 40px #fff; color: #000; }
+      100% { background-color: #0f0; box-shadow: 0 0 30px #0f0; }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .waiting-animation {
+      animation: flash 2s infinite;
+    }
+
+    .error {
+      background-color: #cc0000 !important;
+      color: white;
+    }
+
+    .countdown {
+      font-size: 1.2rem;
+      color: #ffaa00;
+      margin-top: 10px;
+    }
+
+    #results {
+      margin-top: 20px;
+      font-size: 1.3rem;
+    }
+
+    #results p {
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>⚡ Реакционна Игра ⚡</h1>
+  
+  <div class="led-container">
+    <span class="led-indicator red-led" id="redLed"></span>
+    <span class="led-indicator green-led" id="greenLed"></span>
+  </div>
+  
+  <button onclick="startGame()" id="startBtn">Нова игра</button>
+  <button onclick="sendReaction()" id="reactionBtn">Натисни!</button>
+
+  <div id="results">
+    <p>⏱️ <strong>Последно време:</strong> <span id="lastTime">–</span></p>
+    <p>🏅 <strong>Най-добро време:</strong> <span id="bestTime">–</span></p>
+    <button onclick="resetBestTime()">🔄 Изчисти най-добро време</button>
+  </div>
+  
+  <div id="status">Натиснете "Нова игра"</div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const status = document.getElementById("status");
+    const reactionBtn = document.getElementById("reactionBtn");
+    const startBtn = document.getElementById("startBtn");
+    const redLed = document.getElementById("redLed");
+    const greenLed = document.getElementById("greenLed");
+
+    let gameInProgress = false;
+    let countdownInterval = null;
+
+    function startGame() {
+      if (gameInProgress) {
+        setStatus("🚫 Игра вече е в ход!", "#cc0000");
+        return;
+      }
+
+      gameInProgress = true;
+      startBtn.disabled = true;
+      resetLeds();
+      setStatus("⏳ Изчакайте червените светлини...", "#666");
+
+      fetch("/new-game", { method: "POST" })
+        .catch(error => {
+          console.error('Грешка при стартиране на игра:', error);
+          setStatus("❌ Грешка при свързване!", "#cc0000");
+          resetUI();
+        });
+    }
+
+    function sendReaction() {
+      if (!gameInProgress) return;
+
+      fetch("/button-press", { method: "POST" })
+        .catch(error => {
+          console.error('Грешка при изпращане на реакция:', error);
+          setStatus("❌ Грешка при свързване!", "#cc0000");
+        });
+    }
+
+    function setStatus(text, bg) {
+      status.innerText = text;
+      status.style.backgroundColor = bg || "rgba(255, 255, 255, 0.1)";
+      status.style.animation = "fadeIn 0.5s ease-out";
+      status.classList.remove("waiting-animation");
+    }
+
+    function resetLeds() {
+      redLed.classList.remove("active");
+      greenLed.classList.remove("active");
+    }
+
+    function resetUI() {
+      gameInProgress = false;
+      startBtn.disabled = false;
+      resetLeds();
+      status.classList.remove("waiting-animation");
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+        countdownInterval = null;
+      }
+    }
+
+    function startCountdown(seconds) {
+      let remaining = seconds;
+      setStatus(`🚫 Твърде рано! Изчакайте ${remaining} сек`, "#cc0000");
+
+      countdownInterval = setInterval(() => {
+        remaining--;
+        if (remaining > 0) {
+          setStatus(`🚫 Твърде рано! Изчакайте ${remaining} сек`, "#cc0000");
+        } else {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+          setStatus("✅ Готов за нова игра!", "#268bd2");
+        }
+      }, 1000);
+    }
+
+    function simulateRedLedFlash() {
+      let count = 0;
+      let isOn = false;
+
+      const flashInterval = setInterval(() => {
+        if (!isOn) {
+          redLed.classList.add("active");
+          isOn = true;
+          setTimeout(() => {
+            redLed.classList.remove("active");
+            isOn = false;
+            count++;
+            if (count >= 5) clearInterval(flashInterval);
+          }, 200);
+        }
+      }, 1000);
+    }
+
+    function simulateGreenLedFlash() {
+      let count = 0;
+      let isOn = false;
+
+      const flashInterval = setInterval(() => {
+        if (!isOn) {
+          greenLed.classList.add("active");
+          isOn = true;
+          setTimeout(() => {
+            greenLed.classList.remove("active");
+            isOn = false;
+            count++;
+            if (count >= 3) clearInterval(flashInterval);
+          }, 150);
+        }
+      }, 250);
+    }
+
+    function updateTimesDisplay(last, best) {
+      document.getElementById("lastTime").textContent = last ? `${last} ms` : "–";
+      document.getElementById("bestTime").textContent = best ? `${best} ms` : "–";
+    }
+
+    function saveBestTime(newTime) {
+      const currentBest = parseInt(localStorage.getItem("bestTime") || "99999", 10);
+      const newBest = Math.min(currentBest, newTime);
+      localStorage.setItem("bestTime", newBest);
+      updateTimesDisplay(newTime, newBest);
+    }
+
+    function resetBestTime() {
+      localStorage.removeItem("bestTime");
+      updateTimesDisplay(null, null);
+      setStatus("🏁 Най-доброто време е нулирано!", "#ffaa00");
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      const best = localStorage.getItem("bestTime");
+      updateTimesDisplay(null, best);
+    });
+
+    const socket = io();
+
+    socket.on("connect", () => {
+      console.log("Свързан към сървъра");
+      setStatus("✅ Свързан! Натиснете 'Нова игра'", "#268bd2");
+    });
+
+    socket.on("disconnect", () => {
+      console.log("Изключен от сървъра");
+      setStatus("❌ Връзката е прекъсната!", "#cc0000");
+      resetUI();
+    });
+
+    socket.on("arduino", msg => {
+      console.log("Получено от Arduino:", msg);
+
+      if (msg === "STARTED") {
+        simulateGreenLedFlash();
+        setStatus("🔔 Натисни сега!", "#00cc44");
+        status.classList.add("waiting-animation");
+      } else if (msg.startsWith("TIME:")) {
+        const time = parseInt(msg.split(":")[1], 10);
+        setStatus(`⏱️ Време за реакция: ${time} ms`, "#00cc44");
+        saveBestTime(time);
+        resetUI();
+      } else if (msg === "TOO_EARLY") {
+        setStatus("🚫 Твърде рано! Изчакайте червените светлини", "#cc0000");
+        startCountdown(3);
+        resetUI();
+      } else if (msg === "WAITING") {
+        simulateRedLedFlash();
+        setStatus("⏳ Изчакайте червените светлини...", "#666");
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'Space') {
+        event.preventDefault();
+        sendReaction();
+      } else if (event.code === 'Enter' && !startBtn.disabled) {
+        event.preventDefault();
+        startGame();
+      }
+    });
+  </script>
+</body>
+</html>
